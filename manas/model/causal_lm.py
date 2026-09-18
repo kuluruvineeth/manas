@@ -1,13 +1,14 @@
+import torch
 import torch.nn.functional as F
 from torch import nn
-from transformers import PreTrainedModel
+from transformers import GenerationMixin, PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from manas.config import ManasConfig
 from manas.model.transformer import ManasModel
 
 
-class ManasForCausalLM(PreTrainedModel):
+class ManasForCausalLM(PreTrainedModel, GenerationMixin):
     config_class = ManasConfig
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
@@ -36,3 +37,33 @@ class ManasForCausalLM(PreTrainedModel):
         return CausalLMOutputWithPast(
             loss=loss, logits=logits, past_key_values=past_key_values, hidden_states=hidden_states
         )
+
+    @torch.inference_mode()
+    def generate(
+        self, input_ids, attention_mask=None, max_new_tokens=256, eos_token_id=2, streamer=None, use_cache=True
+    ):
+        past_key_values = None
+        finished = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+        if streamer:
+            streamer.put(input_ids.cpu())
+        for _ in range(max_new_tokens):
+            past_len = past_key_values[0][0].shape[1] if past_key_values else 0
+            outputs = self.forward(
+                input_ids[:, past_len:], attention_mask, past_key_values, use_cache=use_cache, logits_to_keep=1
+            )
+            if attention_mask is not None:
+                attention_mask = torch.cat([attention_mask, attention_mask.new_ones(attention_mask.shape[0], 1)], -1)
+            next_token = torch.argmax(outputs.logits[:, -1, :], dim=-1, keepdim=True)
+            if eos_token_id is not None:
+                next_token = torch.where(finished.unsqueeze(-1), next_token.new_full((1, 1), eos_token_id), next_token)
+            input_ids = torch.cat([input_ids, next_token], dim=-1)
+            past_key_values = outputs.past_key_values if use_cache else None
+            if streamer:
+                streamer.put(next_token.cpu())
+            if eos_token_id is not None:
+                finished |= next_token.squeeze(-1).eq(eos_token_id)
+                if finished.all():
+                    break
+        if streamer:
+            streamer.end()
+        return input_ids

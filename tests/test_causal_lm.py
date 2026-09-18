@@ -58,6 +58,49 @@ def test_can_overfit_one_batch():
     assert loss.item() < first * 0.3
 
 
+class Recorder:
+    def __init__(self):
+        self.chunks = []
+        self.ended = False
+
+    def put(self, ids):
+        self.chunks.append(ids)
+
+    def end(self):
+        self.ended = True
+
+
+def test_greedy_generate_is_deterministic_and_cache_agnostic():
+    model = make()
+    prompt = torch.randint(3, CONFIG.vocab_size, (1, 4))
+    cached = model.generate(prompt, max_new_tokens=6, eos_token_id=None)
+    uncached = model.generate(prompt, max_new_tokens=6, eos_token_id=None, use_cache=False)
+    assert cached.shape == (1, 10)
+    torch.testing.assert_close(cached, uncached)
+    torch.testing.assert_close(cached[:, :4], prompt)
+    torch.testing.assert_close(model.generate(prompt, max_new_tokens=6, eos_token_id=None), cached)
+
+
+def test_generate_stops_at_eos_and_pads_finished_rows():
+    model = make()
+    prompt = torch.randint(3, CONFIG.vocab_size, (2, 3))
+    first = model(prompt, logits_to_keep=1).logits[:, -1].argmax(-1)
+    out = model.generate(prompt, max_new_tokens=5, eos_token_id=int(first[0]))
+    assert out.shape[1] <= 8
+    assert out[0, 3] == first[0]
+    if out.shape[1] > 4:
+        assert bool((out[0, 4:] == first[0]).all())
+
+
+def test_streamer_receives_prompt_then_each_token():
+    model = make()
+    prompt = torch.randint(3, CONFIG.vocab_size, (1, 3))
+    recorder = Recorder()
+    out = model.generate(prompt, max_new_tokens=4, eos_token_id=None, streamer=recorder)
+    assert recorder.ended
+    torch.testing.assert_close(torch.cat(recorder.chunks, dim=-1), out)
+
+
 def test_save_and_load_round_trip(tmp_path):
     model = make()
     model.save_pretrained(tmp_path)
