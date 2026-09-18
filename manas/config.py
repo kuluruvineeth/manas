@@ -1,0 +1,26 @@
+import math
+
+from transformers import PretrainedConfig
+
+
+class ManasConfig(PretrainedConfig):
+    model_type = "manas"
+
+    def __init__(self, hidden_size=768, num_hidden_layers=8, **kwargs):
+        super().__init__(**kwargs)
+        self.hidden_size = hidden_size
+        self.num_hidden_layers = num_hidden_layers
+        self.dropout = kwargs.get("dropout", 0.0)
+        self.vocab_size = kwargs.get("vocab_size", 6400)
+        self.bos_token_id = kwargs.get("bos_token_id", 1)
+        self.eos_token_id = kwargs.get("eos_token_id", 2)
+        self.flash_attn = kwargs.get("flash_attn", True)
+        self.num_attention_heads = kwargs.get("num_attention_heads", 8)
+        self.num_key_value_heads = kwargs.get("num_key_value_heads", 4)
+        self.head_dim = kwargs.get("head_dim", self.hidden_size // self.num_attention_heads)
+        self.hidden_act = kwargs.get("hidden_act", "silu")
+        self.intermediate_size = kwargs.get("intermediate_size", math.ceil(hidden_size * math.pi / 64) * 64)
+        self.max_position_embeddings = kwargs.get("max_position_embeddings", 32768)
+        self.rms_norm_eps = kwargs.get("rms_norm_eps", 1e-6)
+        self.rope_theta = kwargs.get("rope_theta", 1e6)
+        self.tie_word_embeddings = kwargs.get("tie_word_embeddings", True)
