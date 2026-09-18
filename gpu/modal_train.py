@@ -26,7 +26,9 @@ secrets = [modal.Secret.from_name("wandb-secret")]
 
 STAGE_DATA = {
     "pretrain": "pretrain_t2t_mini.jsonl",
+    "pretrain_full": "pretrain_t2t.jsonl",
     "full_sft": "sft_t2t_mini.jsonl",
+    "full_sft_full": "sft_t2t.jsonl",
     "lora": "lora_identity.jsonl",
     "dpo": "dpo.jsonl",
     "distillation": "sft_t2t_mini.jsonl",
@@ -34,8 +36,9 @@ STAGE_DATA = {
 
 
 def run_stage(stage, extra_args):
+    trainer = stage.removesuffix("_full")
     command = [
-        sys.executable, f"{REMOTE_REPO}/trainer/train_{stage}.py",
+        sys.executable, f"{REMOTE_REPO}/trainer/train_{trainer}.py",
         "--data_path", f"/data/{STAGE_DATA[stage]}",
         "--tokenizer_dir", f"{REMOTE_REPO}/tokenizer",
         "--save_dir", "/out",
