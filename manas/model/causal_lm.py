@@ -5,6 +5,7 @@ from transformers import GenerationMixin, PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from manas.config import ManasConfig
+from manas.model.sampling import sample_next_token
 from manas.model.transformer import ManasModel
 
 
@@ -40,8 +41,23 @@ class ManasForCausalLM(PreTrainedModel, GenerationMixin):
 
     @torch.inference_mode()
     def generate(
-        self, input_ids, attention_mask=None, max_new_tokens=256, eos_token_id=2, streamer=None, use_cache=True
+        self,
+        input_ids,
+        attention_mask=None,
+        max_new_tokens=8192,
+        temperature=0.85,
+        top_p=0.85,
+        top_k=50,
+        repetition_penalty=1.0,
+        do_sample=True,
+        num_return_sequences=1,
+        eos_token_id=2,
+        streamer=None,
+        use_cache=True,
     ):
+        input_ids = input_ids.repeat(num_return_sequences, 1)
+        if attention_mask is not None:
+            attention_mask = attention_mask.repeat(num_return_sequences, 1)
         past_key_values = None
         finished = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
         if streamer:
@@ -53,7 +69,9 @@ class ManasForCausalLM(PreTrainedModel, GenerationMixin):
             )
             if attention_mask is not None:
                 attention_mask = torch.cat([attention_mask, attention_mask.new_ones(attention_mask.shape[0], 1)], -1)
-            next_token = torch.argmax(outputs.logits[:, -1, :], dim=-1, keepdim=True)
+            next_token = sample_next_token(
+                outputs.logits[:, -1, :], input_ids, temperature, top_k, top_p, repetition_penalty, do_sample
+            )
             if eos_token_id is not None:
                 next_token = torch.where(finished.unsqueeze(-1), next_token.new_full((1, 1), eos_token_id), next_token)
             input_ids = torch.cat([input_ids, next_token], dim=-1)
