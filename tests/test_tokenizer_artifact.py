@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 
 import pytest
-from manas.tokenizer import ADDED_TOKENS, VOCAB_SIZE, render_chat
 from transformers import AutoTokenizer
+
+from manas.tokenizer import ADDED_TOKENS, VOCAB_SIZE, render_chat
 
 TOKENIZER_DIR = Path(__file__).resolve().parents[1] / "tokenizer"
 

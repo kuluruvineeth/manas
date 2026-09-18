@@ -2,6 +2,7 @@ import json
 import os
 
 import pytest
+
 from datapipe.build import (
     JsonlWriter,
     build_identity,

@@ -28,7 +28,7 @@ packages = ["manas", "datapipe"]
 
 [tool.ruff]
 line-length = 120
-src = ["manas", "datapipe"]
+src = ["."]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "SIM", "UP"]

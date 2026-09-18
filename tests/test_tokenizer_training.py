@@ -1,7 +1,8 @@
 import json
 
-from manas.tokenizer import ADDED_TOKENS, iter_corpus, save_tokenizer, train_tokenizer
 from tokenizers import Tokenizer
+
+from manas.tokenizer import ADDED_TOKENS, iter_corpus, save_tokenizer, train_tokenizer
 
 CORPUS = [
     "The quick brown fox jumps over the lazy dog. " * 3,
