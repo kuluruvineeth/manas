@@ -19,6 +19,15 @@ def test_intermediate_size_is_a_multiple_of_64():
         assert 3.0 < size / hidden < 3.3
 
 
+def test_moe_knobs_default_to_four_top1_experts():
+    config = ManasConfig(use_moe=True)
+    assert config.use_moe is True
+    assert (config.num_experts, config.num_experts_per_tok) == (4, 1)
+    assert config.moe_intermediate_size == config.intermediate_size
+    assert config.norm_topk_prob is True and config.router_aux_loss_coef == 5e-4
+    assert ManasConfig().use_moe is False
+
+
 def test_overrides_and_round_trip():
     config = ManasConfig(hidden_size=512, num_key_value_heads=2, dropout=0.1)
     assert config.head_dim == 64 and config.dropout == 0.1
