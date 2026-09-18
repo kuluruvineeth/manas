@@ -70,6 +70,23 @@ def test_matches_naive_reference():
     torch.testing.assert_close(out, expected, atol=1e-5, rtol=1e-5)
 
 
+def test_fused_kernel_matches_manual_path():
+    attn, x, pos = make(seq_len=8, batch=2)
+    assert attn.flash
+    fused, _ = attn(x, pos)
+    attn.flash = False
+    manual, _ = attn(x, pos)
+    torch.testing.assert_close(fused, manual, atol=1e-5, rtol=1e-5)
+    attn.flash = True
+    mask = torch.ones(2, 8)
+    mask[:, 0] = 0
+    attn.flash = False
+    manual_masked, _ = attn(x, pos, attention_mask=mask)
+    attn.flash = True
+    fused_masked, _ = attn(x, pos, attention_mask=mask)
+    torch.testing.assert_close(fused_masked, manual_masked)
+
+
 def test_kv_cache_matches_full_forward():
     attn, x, (cos, sin) = make(seq_len=8, batch=1)
     full, _ = attn(x, (cos, sin))

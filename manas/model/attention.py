@@ -34,6 +34,8 @@ class Attention(nn.Module):
         self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
+        self.dropout = config.dropout
+        self.flash = hasattr(F, "scaled_dot_product_attention") and config.flash_attn
 
     def forward(self, x, position_embeddings, past_key_value=None, use_cache=False, attention_mask=None):
         bsz, seq_len, _ = x.shape
@@ -50,10 +52,17 @@ class Attention(nn.Module):
         xq = xq.transpose(1, 2)
         xk = repeat_kv(xk, self.n_rep).transpose(1, 2)
         xv = repeat_kv(xv, self.n_rep).transpose(1, 2)
-        scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        scores[:, :, :, -seq_len:] += torch.full((seq_len, seq_len), float("-inf"), device=scores.device).triu(1)
-        if attention_mask is not None:
-            scores += (1.0 - attention_mask.unsqueeze(1).unsqueeze(2)) * -1e9
-        weights = self.attn_dropout(F.softmax(scores.float(), dim=-1).type_as(xq))
-        output = (weights @ xv).transpose(1, 2).reshape(bsz, seq_len, -1)
+        unpadded = attention_mask is None or bool(torch.all(attention_mask == 1))
+        if self.flash and seq_len > 1 and past_key_value is None and unpadded:
+            output = F.scaled_dot_product_attention(
+                xq, xk, xv, dropout_p=self.dropout if self.training else 0.0, is_causal=True
+            )
+        else:
+            scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            scores[:, :, :, -seq_len:] += torch.full((seq_len, seq_len), float("-inf"), device=scores.device).triu(1)
+            if attention_mask is not None:
+                scores += (1.0 - attention_mask.unsqueeze(1).unsqueeze(2)) * -1e9
+            weights = self.attn_dropout(F.softmax(scores.float(), dim=-1).type_as(xq))
+            output = weights @ xv
+        output = output.transpose(1, 2).reshape(bsz, seq_len, -1)
         return self.resid_dropout(self.o_proj(output)), past_kv
