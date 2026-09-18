@@ -27,6 +27,9 @@ secrets = [modal.Secret.from_name("wandb-secret")]
 STAGE_DATA = {
     "pretrain": "pretrain_t2t_mini.jsonl",
     "full_sft": "sft_t2t_mini.jsonl",
+    "lora": "lora_identity.jsonl",
+    "dpo": "dpo.jsonl",
+    "distillation": "sft_t2t_mini.jsonl",
 }
 
 
