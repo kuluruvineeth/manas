@@ -40,15 +40,17 @@ def test_zeroed_sublayers_make_the_block_an_identity():
     torch.testing.assert_close(out, x)
 
 
-def test_model_shapes_and_rope_buffers():
+def test_model_shapes_and_rope_tables():
     torch.manual_seed(0)
     model = ManasModel(CONFIG).eval()
     ids = torch.randint(0, CONFIG.vocab_size, (2, 7))
     hidden, presents = model(ids)
     assert hidden.shape == (2, 7, 64)
     assert presents == [None, None]
-    assert model.freqs_cos.shape == (CONFIG.max_position_embeddings, CONFIG.head_dim)
-    assert "freqs_cos" not in model.state_dict()
+    cos, sin = model.rope_tables(hidden.device)
+    assert cos.shape == sin.shape == (CONFIG.max_position_embeddings, CONFIG.head_dim)
+    assert cos[0, 0] == 1.0
+    assert not any("freqs" in key for key in model.state_dict())
 
 
 def test_model_incremental_decode_matches_full():
