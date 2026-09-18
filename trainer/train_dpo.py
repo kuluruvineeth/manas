@@ -1,9 +1,8 @@
 from functools import partial
 
-from manas.config import ManasConfig
 from manas.data.dpo import DPODataset
 from manas.training.dpo import preference_loss
-from manas.training.loop import build_parser, fit
+from manas.training.loop import build_parser, fit, model_config
 from manas.training.utils import init_model, setup_seed
 
 
@@ -25,7 +24,7 @@ def parse_args(argv=None):
 
 def train(args):
     setup_seed(args.seed)
-    config = ManasConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers)
+    config = model_config(args)
     model, tokenizer = init_model(config, args.from_weight, args.save_dir, args.device, args.tokenizer_dir)
     ref_model, _ = init_model(config, args.from_weight, args.save_dir, args.device, args.tokenizer_dir)
     ref_model.eval().requires_grad_(False)

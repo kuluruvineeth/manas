@@ -1,6 +1,5 @@
-from manas.config import ManasConfig
 from manas.data.sft import SFTDataset
-from manas.training.loop import build_parser, fit, language_model_loss
+from manas.training.loop import build_parser, fit, language_model_loss, model_config
 from manas.training.utils import init_model, setup_seed
 
 
@@ -20,7 +19,7 @@ def parse_args(argv=None):
 
 def train(args):
     setup_seed(args.seed)
-    config = ManasConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers)
+    config = model_config(args)
     model, tokenizer = init_model(config, args.from_weight, args.save_dir, args.device, args.tokenizer_dir)
     dataset = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     return fit(args, model, dataset, language_model_loss)

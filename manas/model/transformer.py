@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from manas.model.attention import Attention
-from manas.model.feed_forward import FeedForward
+from manas.model.feed_forward import FeedForward, MOEFeedForward
 from manas.model.norm import RMSNorm
 from manas.model.rope import precompute_freqs_cis
 
@@ -13,7 +13,7 @@ class ManasBlock(nn.Module):
         self.self_attn = Attention(config)
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.mlp = FeedForward(config)
+        self.mlp = MOEFeedForward(config) if config.use_moe else FeedForward(config)
 
     def forward(self, hidden_states, position_embeddings, past_key_value=None, use_cache=False, attention_mask=None):
         residual = hidden_states
@@ -60,4 +60,8 @@ class ManasModel(nn.Module):
                 hidden_states, position_embeddings, past_key_value, use_cache, attention_mask
             )
             presents.append(present)
-        return self.norm(hidden_states), presents
+        aux_loss = sum(
+            (layer.mlp.aux_loss for layer in self.layers if isinstance(layer.mlp, MOEFeedForward)),
+            hidden_states.new_zeros(()),
+        )
+        return self.norm(hidden_states), presents, aux_loss

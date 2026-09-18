@@ -39,8 +39,18 @@ def count_params(model):
     return sum(p.numel() for p in model.parameters()) / 1e6
 
 
+def describe_params(model, config):
+    total = count_params(model)
+    if not getattr(config, "use_moe", False):
+        return f"{total:.2f}M"
+    one_expert = sum(p.numel() for n, p in model.named_parameters() if "mlp.experts.0." in n) / 1e6
+    active = total - one_expert * (config.num_experts - config.num_experts_per_tok)
+    return f"{total:.2f}M-A{active:.2f}M"
+
+
 def weight_path(save_dir, name, config):
-    return os.path.join(save_dir, f"{name}_{config.hidden_size}.pth")
+    suffix = "_moe" if getattr(config, "use_moe", False) else ""
+    return os.path.join(save_dir, f"{name}_{config.hidden_size}{suffix}.pth")
 
 
 def unwrap(model):
@@ -60,7 +70,7 @@ def init_model(config, from_weight="none", save_dir="out", device="cpu", tokeniz
     if from_weight != "none":
         state = torch.load(weight_path(save_dir, from_weight, config), map_location=device)
         model.load_state_dict(state, strict=False)
-    log(f"model params: {count_params(model):.2f}M")
+    log(f"model params: {describe_params(model, config)}")
     return model.to(device), tokenizer
 
 

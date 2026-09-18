@@ -26,6 +26,7 @@ COMMON_DEFAULTS = {
     "use_wandb": 0,
     "wandb_project": "manas",
     "run_name": "",
+    "use_moe": 0,
 }
 
 
@@ -134,4 +135,13 @@ def fit(args, model, dataset, compute_loss, parameters=None, save=save_full_weig
 def language_model_loss(model, batch):
     input_ids, labels = batch
     device = next(model.parameters()).device
-    return model(input_ids.to(device), labels=labels.to(device)).loss
+    output = model(input_ids.to(device), labels=labels.to(device))
+    return output.loss + output.aux_loss
+
+
+def model_config(args):
+    from manas.config import ManasConfig
+
+    return ManasConfig(
+        hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=bool(args.use_moe)
+    )

@@ -7,6 +7,7 @@ from manas.model.causal_lm import ManasForCausalLM
 from manas.training.utils import (
     autocast_context,
     count_params,
+    describe_params,
     get_lr,
     init_model,
     save_weights,
@@ -52,6 +53,16 @@ def test_unwrap_and_param_count():
     model = ManasForCausalLM(CONFIG)
     assert unwrap(model) is model
     assert 0.5 < count_params(model) < 2.0
+    assert describe_params(model, CONFIG).endswith("M") and "-A" not in describe_params(model, CONFIG)
+
+
+def test_moe_naming_and_active_params():
+    moe_config = ManasConfig(hidden_size=64, num_attention_heads=4, num_key_value_heads=2, num_hidden_layers=2,
+                             use_moe=True)
+    assert weight_path("out", "pretrain", moe_config).endswith("pretrain_64_moe.pth")
+    description = describe_params(ManasForCausalLM(moe_config), moe_config)
+    total, active = description.replace("M", "").split("-A")
+    assert float(active) < float(total)
 
 
 def test_autocast_only_on_cuda():

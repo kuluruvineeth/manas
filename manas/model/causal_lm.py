@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from transformers import GenerationMixin, PreTrainedModel
-from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers.modeling_outputs import MoeCausalLMOutputWithPast
 
 from manas.config import ManasConfig
 from manas.model.sampling import sample_next_token
@@ -25,7 +25,7 @@ class ManasForCausalLM(PreTrainedModel, GenerationMixin):
     def forward(
         self, input_ids, attention_mask=None, past_key_values=None, use_cache=False, logits_to_keep=0, labels=None
     ):
-        hidden_states, past_key_values = self.model(input_ids, attention_mask, past_key_values, use_cache)
+        hidden_states, past_key_values, aux_loss = self.model(input_ids, attention_mask, past_key_values, use_cache)
         keep = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, keep, :])
         loss = None
@@ -35,8 +35,8 @@ class ManasForCausalLM(PreTrainedModel, GenerationMixin):
             loss = F.cross_entropy(
                 shifted_logits.view(-1, shifted_logits.size(-1)), shifted_labels.view(-1), ignore_index=-100
             )
-        return CausalLMOutputWithPast(
-            loss=loss, logits=logits, past_key_values=past_key_values, hidden_states=hidden_states
+        return MoeCausalLMOutputWithPast(
+            loss=loss, aux_loss=aux_loss, logits=logits, past_key_values=past_key_values, hidden_states=hidden_states
         )
 
     @torch.inference_mode()

@@ -19,7 +19,7 @@ def test_logits_shape_and_tied_embeddings():
     out = model(ids)
     assert out.logits.shape == (2, 7, CONFIG.vocab_size)
     assert model.lm_head.weight.data_ptr() == model.model.embed_tokens.weight.data_ptr()
-    assert out.loss is None
+    assert out.loss is None and out.aux_loss.item() == 0.0
 
 
 def test_logits_to_keep_returns_only_the_tail():

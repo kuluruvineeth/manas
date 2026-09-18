@@ -23,5 +23,6 @@ def preference_loss(model, batch, ref_model, beta):
     mask = torch.cat([batch["mask_chosen"], batch["mask_rejected"]]).to(device)
     with torch.no_grad():
         ref_log_probs = token_log_probs(ref_model(x).logits, y)
-    policy_log_probs = token_log_probs(model(x).logits, y)
-    return dpo_loss(policy_log_probs, ref_log_probs, mask, beta)
+    policy = model(x)
+    policy_log_probs = token_log_probs(policy.logits, y)
+    return dpo_loss(policy_log_probs, ref_log_probs, mask, beta) + policy.aux_loss

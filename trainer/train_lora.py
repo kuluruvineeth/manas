@@ -1,10 +1,9 @@
 import os
 
-from manas.config import ManasConfig
 from manas.data.sft import SFTDataset
 from manas.lora import apply_lora, lora_parameters, save_lora
-from manas.training.loop import build_parser, fit, language_model_loss
-from manas.training.utils import init_model, log, setup_seed
+from manas.training.loop import build_parser, fit, language_model_loss, model_config
+from manas.training.utils import init_model, log, setup_seed, weight_path
 
 
 def parse_args(argv=None):
@@ -25,12 +24,12 @@ def parse_args(argv=None):
 
 def save_adapter(args, model):
     os.makedirs(args.save_dir, exist_ok=True)
-    save_lora(model, os.path.join(args.save_dir, f"{args.save_weight}_{model.config.hidden_size}.pth"))
+    save_lora(model, weight_path(args.save_dir, args.save_weight, model.config))
 
 
 def train(args):
     setup_seed(args.seed)
-    config = ManasConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers)
+    config = model_config(args)
     model, tokenizer = init_model(config, args.from_weight, args.save_dir, args.device, args.tokenizer_dir)
     apply_lora(model, rank=args.lora_rank)
     for name, param in model.named_parameters():

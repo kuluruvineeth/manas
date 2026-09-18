@@ -44,9 +44,10 @@ def test_model_shapes_and_rope_tables():
     torch.manual_seed(0)
     model = ManasModel(CONFIG).eval()
     ids = torch.randint(0, CONFIG.vocab_size, (2, 7))
-    hidden, presents = model(ids)
+    hidden, presents, aux_loss = model(ids)
     assert hidden.shape == (2, 7, 64)
     assert presents == [None, None]
+    assert aux_loss.item() == 0.0
     cos, sin = model.rope_tables(hidden.device)
     assert cos.shape == sin.shape == (CONFIG.max_position_embeddings, CONFIG.head_dim)
     assert cos[0, 0] == 1.0
@@ -57,10 +58,10 @@ def test_model_incremental_decode_matches_full():
     torch.manual_seed(0)
     model = ManasModel(CONFIG).eval()
     ids = torch.randint(0, CONFIG.vocab_size, (1, 9))
-    full, _ = model(ids)
-    prefix, cache = model(ids[:, :6], use_cache=True)
-    step, cache = model(ids[:, 6:7], past_key_values=cache, use_cache=True)
-    tail, _ = model(ids[:, 7:], past_key_values=cache)
+    full, _, _ = model(ids)
+    prefix, cache, _ = model(ids[:, :6], use_cache=True)
+    step, cache, _ = model(ids[:, 6:7], past_key_values=cache, use_cache=True)
+    tail, _, _ = model(ids[:, 7:], past_key_values=cache)
     torch.testing.assert_close(torch.cat([prefix, step, tail], dim=1), full, atol=1e-5, rtol=1e-5)
 
 
