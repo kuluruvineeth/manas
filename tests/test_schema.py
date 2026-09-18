@@ -46,6 +46,14 @@ INVALID = [
         {"role": "user", "content": "q"}, {"role": "assistant", "content": "a"},
         {"role": "tool", "content": "result"},
     ]}, "end with an assistant"),
+    ("sft", {"conversations": [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "", "tool_calls": json.dumps([{"name": "f", "parameters": {}}])},
+    ]}, "needs arguments"),
+    ("sft", {"conversations": [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "", "tool_calls": json.dumps([{"arguments": {}}])},
+    ]}, "needs a name"),
     ("dpo", {"chosen": [{"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}],
              "rejected": [{"role": "user", "content": "q"}, {"role": "tool", "content": "a"}]}, "invalid role"),
     ("agent", {"conversations": [

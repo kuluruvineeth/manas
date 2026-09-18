@@ -68,6 +68,18 @@ def test_tool_conversations_render_and_mask(tokenizer, tmp_path):
     assert "14:30\n</tool_response>" not in supervised
 
 
+def test_tool_call_missing_arguments_still_renders(tokenizer):
+    conversations = [
+        {"role": "system", "content": "help", "tools": GET_TIME},
+        {"role": "user", "content": "time?"},
+        {"role": "assistant", "content": "", "tool_calls": json.dumps([{"name": "get_time", "parameters": {}}])},
+        {"role": "tool", "content": "14:30"},
+        {"role": "assistant", "content": "It is 14:30."},
+    ]
+    text = render_conversation(tokenizer, conversations)
+    assert '<tool_call>\n{"name": "get_time", "arguments": {}}\n</tool_call>' in text
+
+
 def test_system_prompt_injection_respects_tools_and_ratio():
     rng = random.Random(0)
     plain = CHAT["conversations"]

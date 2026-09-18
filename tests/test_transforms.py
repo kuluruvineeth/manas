@@ -2,7 +2,13 @@ import json
 
 from datapipe.schema import validate_line
 from datapipe.sources import SOURCES
-from datapipe.transforms import TRANSFORMS, parse_tools_block, transform_glaive, transform_hermes_tools
+from datapipe.transforms import (
+    TRANSFORMS,
+    normalize_tool_call,
+    parse_tools_block,
+    transform_glaive,
+    transform_hermes_tools,
+)
 
 HERMES_SYSTEM = (
     "You are a function calling AI model. You are provided with function signatures within "
@@ -51,6 +57,23 @@ def test_glaive_single_quoted_arguments():
     calls = json.loads(result["conversations"][2]["tool_calls"])
     assert calls[0]["arguments"] == {"country": "US"}
     assert result["conversations"][-1]["content"] == "Nothing today."
+    assert validate_line("sft", json.dumps(result)) is None
+
+
+def test_tool_calls_are_normalized_to_name_plus_arguments():
+    assert normalize_tool_call({"name": "f", "parameters": {"a": 1}}) == {"name": "f", "arguments": {"a": 1}}
+    nested = {"function": {"name": "f", "arguments": '{"a": 1}'}}
+    assert normalize_tool_call(nested) == {"name": "f", "arguments": {"a": 1}}
+    assert normalize_tool_call({"name": "f"}) == {"name": "f", "arguments": {}}
+    assert normalize_tool_call({"arguments": {}}) is None
+    assert normalize_tool_call({"name": "f", "arguments": "not json"}) is None
+    row = {
+        "system": 'SYSTEM: functions: {"name": "quote", "parameters": {"type": "object"}}',
+        "chat": 'USER: quote please ASSISTANT: <functioncall> {"name": "quote", "parameters": {}} <|endoftext|> '
+                "FUNCTION RESPONSE: {\"q\": \"hi\"} ASSISTANT: Here you go. <|endoftext|>",
+    }
+    result = transform_glaive(row)
+    assert json.loads(result["conversations"][2]["tool_calls"]) == [{"name": "quote", "arguments": {}}]
     assert validate_line("sft", json.dumps(result)) is None
 
 

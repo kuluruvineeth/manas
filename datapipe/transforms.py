@@ -44,6 +44,23 @@ def _clean(text):
     return text or None
 
 
+def normalize_tool_call(call):
+    if not isinstance(call, dict):
+        return None
+    call = dict(call.get("function", call))
+    if "arguments" not in call and "parameters" in call:
+        call["arguments"] = call.pop("parameters")
+    arguments = call.get("arguments", {})
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(call.get("name"), str) or not isinstance(arguments, dict):
+        return None
+    return {"name": call["name"], "arguments": arguments}
+
+
 def transform_text(row):
     text = _clean(row.get("text"))
     if text is None:
@@ -109,9 +126,12 @@ def transform_hermes_tools(row):
             calls = []
             for block in TOOL_CALL_RE.findall(value):
                 try:
-                    calls.append(json.loads(block))
+                    call = normalize_tool_call(json.loads(block))
                 except json.JSONDecodeError:
                     return None
+                if call is None:
+                    return None
+                calls.append(call)
             entry = {"role": "assistant", "content": TOOL_CALL_RE.sub("", value).strip()}
             if calls:
                 entry["tool_calls"] = json.dumps(calls, ensure_ascii=False)
@@ -181,10 +201,10 @@ def transform_glaive(row):
             if match:
                 raw = GLAIVE_SQ_ARGS_RE.sub(r"\1", match.group(1).strip())
                 try:
-                    call = json.loads(raw)
-                    if isinstance(call.get("arguments"), str):
-                        call["arguments"] = json.loads(call["arguments"])
+                    call = normalize_tool_call(json.loads(raw))
                 except json.JSONDecodeError:
+                    return None
+                if call is None:
                     return None
                 conversation.append({
                     "role": "assistant",

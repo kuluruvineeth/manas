@@ -35,6 +35,22 @@ def check_message(message, index):
             return f"message {index}: {field} is not valid JSON"
         if not isinstance(parsed, list):
             return f"message {index}: {field} must encode a list"
+        if field == "tool_calls":
+            for call in parsed:
+                error = check_tool_call(call, index)
+                if error:
+                    return error
+    return None
+
+
+def check_tool_call(call, index):
+    if not isinstance(call, dict):
+        return f"message {index}: each tool call must be an object"
+    call = call.get("function", call)
+    if not isinstance(call.get("name"), str) or not call["name"]:
+        return f"message {index}: tool call needs a name"
+    if not isinstance(call.get("arguments"), dict | str):
+        return f"message {index}: tool call needs arguments"
     return None
 
 

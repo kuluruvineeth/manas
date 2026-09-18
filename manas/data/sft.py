@@ -43,6 +43,12 @@ def maybe_drop_empty_think(prompt, empty_think_ratio=0.2, rng=random):
     return prompt
 
 
+def complete_tool_call(call):
+    call = dict(call.get("function", call))
+    arguments = call.get("arguments", call.get("parameters", {}))
+    return {"name": call.get("name", ""), "arguments": arguments if arguments is not None else {}}
+
+
 def render_conversation(tokenizer, conversations):
     messages = []
     tools = None
@@ -52,6 +58,8 @@ def render_conversation(tokenizer, conversations):
             tools = json.loads(message["tools"]) if isinstance(message["tools"], str) else message["tools"]
         if isinstance(message.get("tool_calls"), str):
             message["tool_calls"] = json.loads(message["tool_calls"])
+        if message.get("tool_calls"):
+            message["tool_calls"] = [complete_tool_call(call) for call in message["tool_calls"]]
         messages.append(message)
     return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False, tools=tools)
 
