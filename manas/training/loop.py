@@ -43,7 +43,11 @@ def batch_tokens(batch):
     return sum(v.numel() for v in batch.values() if torch.is_tensor(v))
 
 
-def train_epoch(epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics):
+def save_full_weights(args, model):
+    save_weights(model, weight_path(args.save_dir, args.save_weight, model.config))
+
+
+def train_epoch(epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics, save):
     iters = len(loader)
     started = time.time()
     tokens_seen = 0
@@ -79,7 +83,7 @@ def train_epoch(epoch, args, model, loader, val_loader, optimizer, scaler, autoc
             metrics.log(global_step, val_loss=val_loss)
             log(f"epoch {epoch + 1}/{args.epochs} step {step}/{iters} val_loss {val_loss:.4f}")
         if step % args.save_interval == 0 or step == iters or stopping:
-            save_weights(model, weight_path(args.save_dir, args.save_weight, model.config))
+            save(args, model)
         if stopping:
             break
     return loss_value
@@ -93,8 +97,8 @@ def split_validation(dataset, val_samples, seed):
     return random_split(dataset, [len(dataset) - val_size, val_size], generator=generator)
 
 
-def fit(args, model, dataset, compute_loss):
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+def fit(args, model, dataset, compute_loss, parameters=None, save=save_full_weights):
+    optimizer = torch.optim.AdamW(parameters or model.parameters(), lr=args.learning_rate)
     on_cuda = str(args.device).startswith("cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=args.dtype == "float16" and on_cuda)
     autocast = autocast_context(args.device, args.dtype)
@@ -118,7 +122,7 @@ def fit(args, model, dataset, compute_loss):
                 num_workers=args.num_workers, pin_memory=on_cuda,
             )
             last_loss = train_epoch(
-                epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics
+                epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics, save
             )
             if args.max_steps:
                 break

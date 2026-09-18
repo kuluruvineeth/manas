@@ -21,6 +21,7 @@ def parse_args(argv=None):
     parser.add_argument("--open_thinking", type=int, default=0)
     parser.add_argument("--history", type=int, default=0)
     parser.add_argument("--prompt", default=None)
+    parser.add_argument("--lora_weight", default=None)
     return parser.parse_args(argv)
 
 
@@ -46,6 +47,10 @@ def main():
     args = parse_args()
     config = ManasConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers)
     model, tokenizer = init_model(config, args.weight, args.save_dir, args.device, args.tokenizer_dir)
+    if args.lora_weight:
+        from manas.lora import apply_lora, load_lora
+
+        load_lora(apply_lora(model), f"{args.save_dir}/{args.lora_weight}_{args.hidden_size}.pth")
     model.eval()
     history = []
     prompts = [args.prompt] if args.prompt else iter(lambda: input("you: "), "")
