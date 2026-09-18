@@ -2,7 +2,7 @@ import torch
 
 from manas.config import ManasConfig
 from manas.model.attention import Attention, repeat_kv
-from manas.model.rope import precompute_freqs_cis
+from manas.model.rope import apply_rotary_pos_emb, precompute_freqs_cis
 
 CONFIG = ManasConfig(hidden_size=64, num_attention_heads=4, num_key_value_heads=2)
 
@@ -26,17 +26,18 @@ def test_repeat_kv_duplicates_heads_in_groups():
 
 def test_output_shape_and_grouped_projections():
     attn, x, pos = make()
-    assert attn(x, pos).shape == x.shape
+    out, past = attn(x, pos)
+    assert out.shape == x.shape and past is None
     assert attn.k_proj.weight.shape == (2 * CONFIG.head_dim, 64)
     assert attn.q_proj.weight.shape == (4 * CONFIG.head_dim, 64)
 
 
 def test_causal_future_tokens_do_not_leak():
     attn, x, pos = make()
-    base = attn(x, pos)
+    base, _ = attn(x, pos)
     changed = x.clone()
     changed[:, -1] += 5.0
-    out = attn(changed, pos)
+    out, _ = attn(changed, pos)
     torch.testing.assert_close(out[:, :-1], base[:, :-1])
     assert not torch.allclose(out[:, -1], base[:, -1])
 
@@ -45,17 +46,15 @@ def test_padding_mask_removes_padded_keys():
     attn, x, pos = make()
     mask = torch.ones(2, 8)
     mask[:, 0] = 0
-    masked = attn(x, pos, attention_mask=mask)
+    masked, _ = attn(x, pos, attention_mask=mask)
     x_alt = x.clone()
     x_alt[:, 0] += 3.0
-    masked_alt = attn(x_alt, pos, attention_mask=mask)
+    masked_alt, _ = attn(x_alt, pos, attention_mask=mask)
     torch.testing.assert_close(masked[:, 1:], masked_alt[:, 1:], atol=1e-5, rtol=1e-5)
 
 
 def test_matches_naive_reference():
     attn, x, (cos, sin) = make(seq_len=5, batch=1)
-    from manas.model.rope import apply_rotary_pos_emb
-
     q = attn.q_norm(attn.q_proj(x).view(1, 5, 4, -1))
     k = attn.k_norm(attn.k_proj(x).view(1, 5, 2, -1))
     v = attn.v_proj(x).view(1, 5, 2, -1)
@@ -67,4 +66,16 @@ def test_matches_naive_reference():
         scores = scores.masked_fill(torch.ones(5, 5).triu(1).bool(), float("-inf"))
         outputs.append(torch.softmax(scores, -1) @ vh)
     expected = attn.o_proj(torch.cat(outputs, dim=-1)).unsqueeze(0)
-    torch.testing.assert_close(attn(x, (cos, sin)), expected, atol=1e-5, rtol=1e-5)
+    out, _ = attn(x, (cos, sin))
+    torch.testing.assert_close(out, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_kv_cache_matches_full_forward():
+    attn, x, (cos, sin) = make(seq_len=8, batch=1)
+    full, _ = attn(x, (cos, sin))
+    prefix, cache = attn(x[:, :5], (cos[:5], sin[:5]), use_cache=True)
+    assert cache[0].shape == (1, 5, 2, CONFIG.head_dim)
+    step, cache = attn(x[:, 5:6], (cos[5:6], sin[5:6]), past_key_value=cache, use_cache=True)
+    assert cache[0].shape[1] == 6
+    tail, _ = attn(x[:, 6:], (cos[6:], sin[6:]), past_key_value=cache)
+    torch.testing.assert_close(torch.cat([prefix, step, tail], dim=1), full, atol=1e-5, rtol=1e-5)

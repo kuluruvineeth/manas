@@ -35,7 +35,7 @@ class Attention(nn.Module):
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-    def forward(self, x, position_embeddings, attention_mask=None):
+    def forward(self, x, position_embeddings, past_key_value=None, use_cache=False, attention_mask=None):
         bsz, seq_len, _ = x.shape
         xq = self.q_proj(x).view(bsz, seq_len, self.n_heads, self.head_dim)
         xk = self.k_proj(x).view(bsz, seq_len, self.n_kv_heads, self.head_dim)
@@ -43,13 +43,17 @@ class Attention(nn.Module):
         xq, xk = self.q_norm(xq), self.k_norm(xk)
         cos, sin = position_embeddings
         xq, xk = apply_rotary_pos_emb(xq, xk, cos, sin)
+        if past_key_value is not None:
+            xk = torch.cat([past_key_value[0], xk], dim=1)
+            xv = torch.cat([past_key_value[1], xv], dim=1)
+        past_kv = (xk, xv) if use_cache else None
         xq = xq.transpose(1, 2)
         xk = repeat_kv(xk, self.n_rep).transpose(1, 2)
         xv = repeat_kv(xv, self.n_rep).transpose(1, 2)
         scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        scores += torch.full((seq_len, seq_len), float("-inf"), device=scores.device).triu(1)
+        scores[:, :, :, -seq_len:] += torch.full((seq_len, seq_len), float("-inf"), device=scores.device).triu(1)
         if attention_mask is not None:
             scores += (1.0 - attention_mask.unsqueeze(1).unsqueeze(2)) * -1e9
         weights = self.attn_dropout(F.softmax(scores.float(), dim=-1).type_as(xq))
         output = (weights @ xv).transpose(1, 2).reshape(bsz, seq_len, -1)
-        return self.resid_dropout(self.o_proj(output))
+        return self.resid_dropout(self.o_proj(output)), past_kv
