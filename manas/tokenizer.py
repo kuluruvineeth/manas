@@ -1,6 +1,9 @@
+import json
+import os
 from pathlib import Path
 
 from jinja2 import Environment
+from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
 VOCAB_SIZE = 6400
 
@@ -36,6 +39,56 @@ def render_chat(messages, tools=None, add_generation_prompt=False, open_thinking
         add_generation_prompt=add_generation_prompt,
         open_thinking=open_thinking,
     )
+
+
+def iter_corpus(paths, max_docs_per_file=None):
+    for path in paths:
+        seen = 0
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if max_docs_per_file is not None and seen >= max_docs_per_file:
+                    break
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if "text" in row:
+                    text = row["text"]
+                else:
+                    text = "\n".join(m["content"] for m in row.get("conversations", []) if m.get("content"))
+                if text:
+                    seen += 1
+                    yield text
+
+
+def train_tokenizer(texts, vocab_size=VOCAB_SIZE):
+    tokenizer = Tokenizer(models.BPE())
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    tokenizer.decoder = decoders.ByteLevel()
+    trainer = trainers.BpeTrainer(
+        vocab_size=vocab_size,
+        show_progress=False,
+        initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+        special_tokens=ADDED_TOKENS,
+    )
+    tokenizer.train_from_iterator(texts, trainer=trainer)
+    return unmark_control_tokens(tokenizer)
+
+
+def unmark_control_tokens(tokenizer):
+    data = json.loads(tokenizer.to_str())
+    for token in data["added_tokens"]:
+        token["special"] = token["content"] in SPECIAL_TOKENS
+    return Tokenizer.from_str(json.dumps(data))
+
+
+def save_tokenizer(tokenizer, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "tokenizer.json")
+    tokenizer.save(path)
+    with open(os.path.join(out_dir, "tokenizer_config.json"), "w", encoding="utf-8") as f:
+        json.dump(tokenizer_config(), f, ensure_ascii=False, indent=4)
+    return path
 
 
 def added_tokens_decoder():
