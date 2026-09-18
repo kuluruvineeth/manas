@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+.claude/
+.cursor/
+.idea/
+.vscode/
+out/
+checkpoints/
+dataset/*.jsonl
+wandb/
+swanlog/
