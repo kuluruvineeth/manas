@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from manas.model.attention import Attention
@@ -36,10 +37,11 @@ class ManasModel(nn.Module):
 
     def rope_tables(self, device):
         if self._rope is None or self._rope[0].device != device:
-            cos, sin = precompute_freqs_cis(
-                self.config.head_dim, self.config.max_position_embeddings, self.config.rope_theta
-            )
-            self._rope = (cos.to(device), sin.to(device))
+            with torch.inference_mode(False):
+                cos, sin = precompute_freqs_cis(
+                    self.config.head_dim, self.config.max_position_embeddings, self.config.rope_theta
+                )
+                self._rope = (cos.to(device), sin.to(device))
         return self._rope
 
     def forward(self, input_ids, attention_mask=None, past_key_values=None, use_cache=False):

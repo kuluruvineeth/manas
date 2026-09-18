@@ -112,6 +112,17 @@ def test_streamer_receives_prompt_then_each_token():
     torch.testing.assert_close(torch.cat(recorder.chunks, dim=-1), out)
 
 
+def test_training_still_works_after_generate():
+    torch.manual_seed(0)
+    model = ManasForCausalLM(CONFIG)
+    prompt = torch.randint(3, CONFIG.vocab_size, (1, 4))
+    model.generate(prompt, max_new_tokens=3, do_sample=False, eos_token_id=None)
+    model.train()
+    loss = model(prompt, labels=prompt).loss
+    loss.backward()
+    assert model.lm_head.weight.grad is not None
+
+
 def test_save_and_load_round_trip(tmp_path):
     model = make()
     model.save_pretrained(tmp_path)
