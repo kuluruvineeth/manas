@@ -4,6 +4,7 @@ import time
 import torch
 from torch.utils.data import DataLoader, random_split
 
+from manas.training.checkpoint import SkipBatchSampler, load_resume, restore, resume_path, save_resume
 from manas.training.metrics import MetricsLogger, evaluate
 from manas.training.utils import autocast_context, get_lr, log, save_weights, weight_path
 
@@ -23,6 +24,7 @@ COMMON_DEFAULTS = {
     "seed": 42,
     "tokenizer_dir": "tokenizer",
     "max_steps": 0,
+    "from_resume": 0,
     "use_wandb": 0,
     "wandb_project": "manas",
     "run_name": "",
@@ -48,13 +50,15 @@ def save_full_weights(args, model):
     save_weights(model, weight_path(args.save_dir, args.save_weight, model.config))
 
 
-def train_epoch(epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics, save):
-    iters = len(loader)
+def train_epoch(
+    epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics, save, skip=0
+):
+    iters = len(loader) + skip
     started = time.time()
     tokens_seen = 0
     loss_value = None
     grad_norm = None
-    for step, batch in enumerate(loader, start=1):
+    for step, batch in enumerate(loader, start=skip + 1):
         global_step = epoch * iters + step
         lr = get_lr(global_step, args.epochs * iters, args.learning_rate)
         for group in optimizer.param_groups:
@@ -72,7 +76,7 @@ def train_epoch(epoch, args, model, loader, val_loader, optimizer, scaler, autoc
         loss_value = loss.item() * args.accumulation_steps
         if step % args.log_interval == 0 or step == iters:
             elapsed = time.time() - started
-            eta = elapsed / step * (iters - step) / 60
+            eta = elapsed / max(step - skip, 1) * (iters - step) / 60
             metrics.log(global_step, loss=loss_value, lr=lr, grad_norm=grad_norm, tokens_per_sec=tokens_seen / elapsed)
             log(
                 f"epoch {epoch + 1}/{args.epochs} step {step}/{iters} loss {loss_value:.4f} "
@@ -85,6 +89,11 @@ def train_epoch(epoch, args, model, loader, val_loader, optimizer, scaler, autoc
             log(f"epoch {epoch + 1}/{args.epochs} step {step}/{iters} val_loss {val_loss:.4f}")
         if step % args.save_interval == 0 or step == iters or stopping:
             save(args, model)
+            save_resume(
+                resume_path(args.save_dir, args.save_weight, model.config),
+                model, optimizer, scaler, epoch, step,
+                wandb_id=metrics.run_id(),
+            )
         if stopping:
             break
     return loss_value
@@ -107,23 +116,38 @@ def fit(args, model, dataset, compute_loss, parameters=None, save=save_full_weig
     val_loader = None
     if val_set is not None:
         val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+
+    start_epoch, start_step, wandb_id = 0, 0, None
+    if args.from_resume:
+        bundle = load_resume(resume_path(args.save_dir, args.save_weight, model.config), map_location=args.device)
+        if bundle is not None:
+            start_epoch, start_step = restore(bundle, model, optimizer, scaler)
+            wandb_id = bundle.get("wandb_id")
+            log(f"resuming from epoch {start_epoch + 1}, step {start_step}")
+
     metrics = MetricsLogger(
         weight_path(args.save_dir, args.save_weight, model.config).replace(".pth", "_metrics.jsonl"),
         use_wandb=bool(args.use_wandb),
         project=args.wandb_project,
         run_name=args.run_name or f"{args.save_weight}-{model.config.hidden_size}",
         config=vars(args),
+        resume_id=wandb_id,
+        append=bool(args.from_resume),
     )
     last_loss = None
     try:
-        for epoch in range(args.epochs):
+        for epoch in range(start_epoch, args.epochs):
             generator = torch.Generator().manual_seed(args.seed + epoch)
+            skip = start_step if epoch == start_epoch else 0
+            indices = torch.randperm(len(train_set), generator=generator).tolist()
             loader = DataLoader(
-                train_set, batch_size=args.batch_size, shuffle=True, generator=generator,
-                num_workers=args.num_workers, pin_memory=on_cuda,
+                train_set,
+                batch_sampler=SkipBatchSampler(indices, args.batch_size, skip),
+                num_workers=args.num_workers,
+                pin_memory=on_cuda,
             )
             last_loss = train_epoch(
-                epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics, save
+                epoch, args, model, loader, val_loader, optimizer, scaler, autocast, compute_loss, metrics, save, skip
             )
             if args.max_steps:
                 break

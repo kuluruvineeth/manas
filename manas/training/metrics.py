@@ -6,15 +6,22 @@ import torch
 
 
 class MetricsLogger:
-    def __init__(self, path, use_wandb=False, project="manas", run_name=None, config=None):
+    def __init__(self, path, use_wandb=False, project="manas", run_name=None, config=None,
+                 resume_id=None, append=False):
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        self.file = open(path, "w", encoding="utf-8")  # noqa: SIM115
+        self.file = open(path, "a" if append else "w", encoding="utf-8")  # noqa: SIM115
         self.started = time.time()
         self.wandb = None
         if use_wandb:
             import wandb
 
-            self.wandb = wandb.init(project=project, name=run_name, config=config)
+            self.wandb = wandb.init(
+                project=project, name=run_name, config=config,
+                id=resume_id, resume="must" if resume_id else None,
+            )
+
+    def run_id(self):
+        return self.wandb.id if self.wandb is not None else None
 
     def log(self, step, **values):
         record = {"step": step, "elapsed": round(time.time() - self.started, 2), **values}

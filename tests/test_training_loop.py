@@ -39,6 +39,30 @@ def test_fit_learns_a_repeated_sequence(tmp_path):
     assert (tmp_path / "demo_64.pth").exists()
 
 
+def test_interrupted_run_resumes_where_it_stopped(tmp_path):
+    torch.manual_seed(0)
+    config = ManasConfig(hidden_size=64, num_hidden_layers=2)
+    model = ManasForCausalLM(config)
+    ids = torch.randint(3, config.vocab_size, (16,))
+    common = ["--device", "cpu", "--num_workers", "0", "--save_dir", str(tmp_path),
+              "--log_interval", "1000", "--save_interval", "2", "--eval_interval", "1000", "--val_samples", "0"]
+    parser = build_parser("x", save_weight="demo", batch_size=4, learning_rate=1e-3, accumulation_steps=1,
+                          max_seq_len=16, data_path="", from_weight="none")
+
+    interrupted = parser.parse_args(["--epochs", "2", "--max_steps", "4", *common])
+    fit(interrupted, model, Repeat(ids, 40), language_model_loss)
+    bundle = torch.load(tmp_path / "demo_64_resume.pth", weights_only=False)
+    assert (bundle["epoch"], bundle["step"]) == (0, 4)
+
+    fresh = ManasForCausalLM(config)
+    resumed = parser.parse_args(["--epochs", "1", "--from_resume", "1", *common])
+    before = {k: v.clone() for k, v in fresh.state_dict().items()}
+    fit(resumed, fresh, Repeat(ids, 40), language_model_loss)
+    assert not torch.equal(before["lm_head.weight"], fresh.state_dict()["lm_head.weight"])
+    final = torch.load(tmp_path / "demo_64_resume.pth", weights_only=False)
+    assert final["step"] == 10
+
+
 def test_max_steps_stops_early_and_saves(tmp_path):
     config = ManasConfig(hidden_size=64, num_attention_heads=4, num_key_value_heads=2, num_hidden_layers=2)
     model = ManasForCausalLM(config)
