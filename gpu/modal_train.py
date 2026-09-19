@@ -32,6 +32,9 @@ STAGE_DATA = {
     "lora": "lora_identity.jsonl",
     "dpo": "dpo.jsonl",
     "distillation": "sft_t2t_mini.jsonl",
+    "ppo": "rlaif.jsonl",
+    "grpo": "rlaif.jsonl",
+    "agent": "agent_rl.jsonl",
 }
 
 
@@ -51,18 +54,41 @@ def run_stage(stage, extra_args):
     return result.returncode
 
 
-@app.function(gpu="A100", timeout=8 * 3600, volumes={"/data": data_volume, "/out": out_volume}, secrets=secrets)
+@app.function(volumes={"/data": data_volume, "/out": out_volume})
+def check_inputs(stage: str, from_weight: str | None):
+    missing = []
+    if not Path(f"/data/{STAGE_DATA[stage]}").exists():
+        missing.append(f"/data/{STAGE_DATA[stage]}")
+    if from_weight and not list(Path("/out").glob(f"{from_weight}_*.pth")):
+        missing.append(f"/out/{from_weight}_*.pth")
+    if missing:
+        have = sorted(p.name for p in Path("/data").iterdir()) + sorted(p.name for p in Path("/out").glob("*.pth"))
+        return f"missing: {', '.join(missing)}\nvolumes hold: {', '.join(have)}"
+    return None
+
+
+@app.function(gpu="A100", timeout=12 * 3600, volumes={"/data": data_volume, "/out": out_volume}, secrets=secrets)
 def train_a100(stage: str, extra_args: list[str]):
     return run_stage(stage, extra_args)
 
 
-@app.function(gpu="H100", timeout=8 * 3600, volumes={"/data": data_volume, "/out": out_volume}, secrets=secrets)
+@app.function(gpu="H100", timeout=12 * 3600, volumes={"/data": data_volume, "/out": out_volume}, secrets=secrets)
 def train_h100(stage: str, extra_args: list[str]):
     return run_stage(stage, extra_args)
 
 
 @app.local_entrypoint()
-def main(stage: str = "pretrain", gpu: str = "A100", extra: str = ""):
+def main(stage: str = "pretrain", gpu: str = "A100", extra: str = "", wait: bool = False):
+    extra_args = extra.split()
+    # A missing input costs the whole GPU-hour if we only find out after the model loads.
+    from_weight = extra_args[extra_args.index("--from_weight") + 1] if "--from_weight" in extra_args else None
+    problem = check_inputs.remote(stage, from_weight)
+    if problem:
+        raise SystemExit(f"refusing to start {stage} — {problem}")
     train = train_h100 if gpu.upper() == "H100" else train_a100
-    code = train.remote(stage, extra.split())
-    print(f"{stage} finished with exit code {code}")
+    if wait:
+        print(f"{stage} finished with exit code {train.remote(stage, extra_args)}")
+        return
+    # A blocking .remote() input is cancelled the moment this client dies, --detach or not.
+    # A training run has to outlive the laptop that started it, so hand it off and let go.
+    print(f"{stage} running as {train.spawn(stage, extra_args).object_id}")
