@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manas
+  labels:
+    app: manas
+spec:
+  replicas: 1
+  strategy:
+    # The default rolling update wants a surge pod, which needs a spare GPU. On a cluster whose
+    # GPUs are all in use that pod stays Pending and the rollout never finishes.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: manas
+  template:
+    metadata:
+      labels:
+        app: manas
+    spec:
+      containers:
+        - name: vllm
+          image: manas-serve:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: MAX_MODEL_LEN
+              value: "2048"
+            - name: GPU_MEMORY_UTILIZATION
+              value: "0.85"
+          resources:
+            # GPUs cannot be oversubscribed: request and limit must match, and fractions are invalid.
+            requests:
+              nvidia.com/gpu: 1
+              memory: 8Gi
+              cpu: "2"
+            limits:
+              nvidia.com/gpu: 1
+              memory: 16Gi
+              cpu: "4"
+          volumeMounts:
+            # Tensor-parallel serving talks over shared memory; the 64Mi default causes silent hangs.
+            - name: dshm
+              mountPath: /dev/shm
+          startupProbe:
+            # Loading weights takes time. Without this the pod is killed mid-load, forever.
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            # Restarts a pod whose CUDA context has died but whose process is still alive.
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

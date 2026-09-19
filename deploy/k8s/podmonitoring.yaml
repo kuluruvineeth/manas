@@ -1,0 +1,14 @@
+# Without this, nothing scrapes vLLM and the HPA metric simply does not exist — the
+# autoscaler reports <unknown> and never scales. Managed Prometheus picks this up on GKE.
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: manas
+spec:
+  selector:
+    matchLabels:
+      app: manas
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

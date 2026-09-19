@@ -1,0 +1,35 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: manas
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: manas
+  # Never zero: a new pod pays the full model load before it can answer anything.
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    # Queue depth, not GPU utilisation. A decode loop pins the GPU near 100% while it is
+    # memory-bandwidth bound and arithmetically almost idle, so GPU utilisation saturates
+    # long before the server does and scales up capacity that buys nothing. Requests
+    # waiting is the one signal that means demand genuinely exceeds capacity.
+    # Google's own guidance: "we do not recommend using GPU utilization for autoscaling
+    # inference workloads."
+    - type: Pods
+      pods:
+        metric:
+          # Managed Prometheus renames series to prometheus.googleapis.com|<metric>|<kind>.
+          name: prometheus.googleapis.com|vllm:num_requests_waiting|gauge
+        target:
+          type: AverageValue
+          # Start low and raise it until latency reaches the limit you are willing to accept.
+          averageValue: "4"
+  behavior:
+    scaleUp:
+      # React quickly — the queue is a lagging signal, so it is already hurting when it moves.
+      stabilizationWindowSeconds: 30
+    scaleDown:
+      # Slowly. Giving up a pod you need again moments later costs another cold start.
+      stabilizationWindowSeconds: 600
