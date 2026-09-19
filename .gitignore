@@ -13,3 +13,4 @@ checkpoints/
 dataset/*.jsonl
 wandb/
 swanlog/
+.terraform/
