@@ -44,6 +44,19 @@ def test_exported_model_gives_identical_logits(tmp_path):
     assert tokenizer.eos_token_id == 2 and "<think>" in tokenizer.chat_template
 
 
+def test_exported_tokenizer_config_stays_portable(tmp_path):
+    torch.manual_seed(0)
+    model = ManasForCausalLM(SMALL).eval()
+    save_weights(model, weight_path(str(tmp_path), "full_sft", SMALL))
+    out_dir = export("full_sft", SMALL, str(tmp_path), str(TOKENIZER_DIR), str(tmp_path / "hf"))
+    config = json.loads((Path(out_dir) / "tokenizer_config.json").read_text())
+    assert config["tokenizer_class"] == "PreTrainedTokenizerFast"
+    # transformers 5 writes extra_special_tokens as a list; on transformers 4 that crashes the
+    # tokenizer constructor, so vLLM and SGLang cannot load the export at all.
+    assert "extra_special_tokens" not in config
+    assert not [key for key in ("backend", "is_local", "local_files_only") if key in config]
+
+
 def test_moe_export_round_trips(tmp_path):
     moe_config = ManasConfig(hidden_size=64, num_hidden_layers=2, use_moe=True)
     torch.manual_seed(0)

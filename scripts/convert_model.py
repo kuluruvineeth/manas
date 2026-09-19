@@ -58,6 +58,38 @@ def fuse_experts(state, config, target_state):
     return fused
 
 
+# transformers 5 stamps its own backend class and a set of v5-only keys into tokenizer_config.json.
+# Anything still on transformers 4 — vLLM, SGLang, the llama.cpp converters — then refuses to load it.
+V5_ONLY_KEYS = (
+    # v5 writes a list here; v4 expects a name -> token mapping and crashes on a list. The tokens
+    # it lists are Qwen defaults that are already registered in tokenizer.json anyway.
+    "extra_special_tokens",
+    "backend",
+    "is_local",
+    "local_files_only",
+    "model_specific_special_tokens",
+    "audio_bos_token",
+    "audio_eos_token",
+    "audio_token",
+    "image_token",
+    "video_token",
+    "vision_bos_token",
+    "vision_eos_token",
+)
+
+
+def portable_tokenizer_config(out_dir):
+    path = os.path.join(out_dir, "tokenizer_config.json")
+    with open(path) as handle:
+        config = json.load(handle)
+    for key in V5_ONLY_KEYS:
+        config.pop(key, None)
+    config["tokenizer_class"] = "PreTrainedTokenizerFast"
+    with open(path, "w") as handle:
+        json.dump(config, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+
+
 def export(stage, config, save_dir, tokenizer_dir, out_dir, device="cpu"):
     model, tokenizer = init_model(config, stage, save_dir, device, tokenizer_dir)
     target_config = qwen_config(config)
@@ -71,6 +103,7 @@ def export(stage, config, save_dir, tokenizer_dir, out_dir, device="cpu"):
     os.makedirs(out_dir, exist_ok=True)
     target.half().save_pretrained(out_dir)
     tokenizer.save_pretrained(out_dir)
+    portable_tokenizer_config(out_dir)
     return out_dir
 
 
