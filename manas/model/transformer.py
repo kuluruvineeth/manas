@@ -39,7 +39,10 @@ class ManasModel(nn.Module):
         if self._rope is None or self._rope[0].device != device:
             with torch.inference_mode(False):
                 cos, sin = precompute_freqs_cis(
-                    self.config.head_dim, self.config.max_position_embeddings, self.config.rope_theta
+                    self.config.head_dim,
+                    self.config.max_position_embeddings,
+                    self.config.rope_theta,
+                    getattr(self.config, "rope_scaling", None),
                 )
                 self._rope = (cos.to(device), sin.to(device))
         return self._rope
