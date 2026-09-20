@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from manas.data.sft import EMPTY_THINK
 from manas.serve.protocol import (
     DONE,
     chat_completion,
@@ -29,6 +30,7 @@ class ChatRequest(BaseModel):
     tools: list | None = None
     open_thinking: bool = False
     chat_template_kwargs: dict | None = None
+    strip_empty_think: bool = True
 
 
 def wants_thinking(request):
@@ -37,13 +39,17 @@ def wants_thinking(request):
 
 
 def render(tokenizer, request):
-    return tokenizer.apply_chat_template(
+    thinking = wants_thinking(request)
+    prompt = tokenizer.apply_chat_template(
         request.messages,
         tokenize=False,
         add_generation_prompt=True,
         tools=request.tools or None,
-        open_thinking=wants_thinking(request),
+        open_thinking=thinking,
     )
+    if not thinking and request.strip_empty_think:
+        prompt = prompt.replace(EMPTY_THINK, "")
+    return prompt
 
 
 def generate_text(model, tokenizer, request, device):

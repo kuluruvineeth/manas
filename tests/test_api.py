@@ -7,8 +7,9 @@ from fastapi.testclient import TestClient
 from transformers import AutoTokenizer
 
 from manas.config import ManasConfig
+from manas.data.sft import EMPTY_THINK
 from manas.model.causal_lm import ManasForCausalLM
-from manas.serve.api import ChatRequest, create_app, wants_thinking
+from manas.serve.api import ChatRequest, create_app, render, wants_thinking
 
 TOKENIZER_DIR = Path(__file__).resolve().parents[1] / "tokenizer"
 CONFIG = ManasConfig(hidden_size=64, num_hidden_layers=2)
@@ -63,6 +64,15 @@ def test_thinking_can_be_requested_three_ways():
     assert wants_thinking(ChatRequest(**base, open_thinking=True))
     assert wants_thinking(ChatRequest(**base, chat_template_kwargs={"open_thinking": True}))
     assert wants_thinking(ChatRequest(**base, chat_template_kwargs={"enable_thinking": True}))
+
+
+def test_empty_think_block_is_stripped_when_not_thinking():
+    tokenizer = AutoTokenizer.from_pretrained(str(TOKENIZER_DIR))
+    base = {"messages": [{"role": "user", "content": "hi"}]}
+    assert EMPTY_THINK not in render(tokenizer, ChatRequest(**base))
+    assert EMPTY_THINK in render(tokenizer, ChatRequest(**base, strip_empty_think=False))
+    thinking = render(tokenizer, ChatRequest(**base, open_thinking=True))
+    assert thinking.endswith("<think>\n") and EMPTY_THINK not in thinking
 
 
 def test_tools_are_accepted_in_the_request(client):
