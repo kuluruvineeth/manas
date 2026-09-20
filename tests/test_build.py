@@ -6,6 +6,7 @@ import pytest
 from datapipe.build import (
     JsonlWriter,
     build_identity,
+    build_identity_mixed,
     build_minis,
     build_rlaif,
     conversation_chars,
@@ -57,6 +58,23 @@ def test_build_identity(tmp_path):
     build_identity(str(tmp_path))
     rows = read_jsonl(tmp_path / "lora_identity.jsonl")
     assert len(rows) == 75
+
+
+def test_build_identity_mixed_holds_both_kinds(tmp_path):
+    build_identity(str(tmp_path))
+    make_sft_file(
+        tmp_path / "sft_t2t_mini.jsonl",
+        [
+            {"conversations": [{"role": "user", "content": f"q{i}"}, {"role": "assistant", "content": f"a{i}"}]}
+            for i in range(500)
+        ],
+    )
+    build_identity_mixed(str(tmp_path), general_rows=120)
+    rows = read_jsonl(tmp_path / "lora_identity_mixed.jsonl")
+    assert len(rows) == 75 * 4 + 120
+    identity = [r for r in rows if "Manas" in json.dumps(r)]
+    assert len(identity) == 75 * 4
+    assert len(rows) - len(identity) == 120
 
 
 def make_sft_file(path, rows):

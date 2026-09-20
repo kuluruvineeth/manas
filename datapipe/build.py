@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import json
 import os
 import random
@@ -162,6 +163,21 @@ def build_identity(out_dir=None):
     writer.close()
 
 
+def build_identity_mixed(out_dir=None, seed=42, identity_repeats=4, general_rows=300, scan_rows=4000):
+    rng = random.Random(seed)
+    out_dir = out_dir or DATASET_DIR
+    with open(os.path.join(out_dir, "lora_identity.jsonl"), encoding="utf-8") as handle:
+        identity = handle.readlines()
+    with open(os.path.join(out_dir, "sft_t2t_mini.jsonl"), encoding="utf-8") as handle:
+        pool = list(itertools.islice(handle, scan_rows))
+    rows = identity * identity_repeats + rng.sample(pool, min(general_rows, len(pool)))
+    rng.shuffle(rows)
+    writer = JsonlWriter("lora_identity_mixed.jsonl", out_dir)
+    for line in rows:
+        writer.write_line(line)
+    writer.close()
+
+
 def build_agent(out_dir=None):
     writer = JsonlWriter("agent_rl.jsonl", out_dir)
     for row in iter_agent_rows():
@@ -231,12 +247,13 @@ BUILDERS = {
     "medical": build_medical,
     "exam": build_exam,
     "identity": build_identity,
+    "identity-mixed": build_identity_mixed,
     "agent": build_agent,
     "rlaif": build_rlaif,
     "minis": build_minis,
 }
 
-ORDER = ["pretrain", "sft", "dpo", "medical", "exam", "identity", "agent", "rlaif", "minis"]
+ORDER = ["pretrain", "sft", "dpo", "medical", "exam", "identity", "agent", "rlaif", "minis", "identity-mixed"]
 
 
 def main():
