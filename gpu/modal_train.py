@@ -114,6 +114,58 @@ def train_h100(stage: str, extra_args: list[str]):
     return run_stage(stage, extra_args)
 
 
+EVAL_CHECKPOINTS = [
+    ("pretrain_full", 0),
+    ("full_sft_full", 0),
+    ("dpo_full", 0),
+    ("full_dist", 0),
+    ("ppo_actor", 0),
+    ("grpo", 0),
+    ("agent", 0),
+    ("full_sft_moe", 1),
+]
+
+
+@app.function(gpu="A100", timeout=6 * 3600, volumes=VOLUMES)
+def evaluate(limit: int):
+    import json
+
+    env = {**os.environ, "PYTHONPATH": REMOTE_REPO, **CACHE_ENV}
+    results = {}
+    for weight, use_moe in EVAL_CHECKPOINTS:
+        suffix = "_moe" if use_moe else ""
+        if not Path(f"/out/{weight}_768{suffix}.pth").exists():
+            print(f"[skip] {weight}", flush=True)
+            continue
+        out_path = f"/out/eval_{weight}.json"
+        command = [
+            sys.executable, f"{REMOTE_REPO}/scripts/evaluate.py",
+            "--weight", weight,
+            "--save_dir", "/out",
+            "--tokenizer_dir", f"{REMOTE_REPO}/tokenizer",
+            "--use_moe", str(use_moe),
+            "--device", "cuda:0",
+            "--limit", str(limit),
+            "--out", out_path,
+        ]
+        print(f"[eval] {weight}", flush=True)
+        if subprocess.run(command, cwd=REMOTE_REPO, env=env).returncode != 0:
+            print(f"[eval] {weight} failed", flush=True)
+            continue
+        with open(out_path) as handle:
+            results[weight] = json.load(handle)
+        out_volume.commit()
+    with open("/out/eval_summary.json", "w") as handle:
+        json.dump(results, handle, indent=2)
+    out_volume.commit()
+    return results
+
+
+@app.local_entrypoint()
+def benchmark(limit: int = 500):
+    print(f"evaluation running as {evaluate.spawn(limit).object_id}")
+
+
 @app.local_entrypoint()
 def main(stage: str = "pretrain", gpu: str = "A100", extra: str = "", wait: bool = False):
     extra_args = extra.split()
