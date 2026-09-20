@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import modal
@@ -22,7 +23,11 @@ image = (
 app = modal.App("manas-train", image=image)
 data_volume = modal.Volume.from_name("manas-data", create_if_missing=True)
 out_volume = modal.Volume.from_name("manas-out", create_if_missing=True)
+cache_volume = modal.Volume.from_name("manas-hf-cache", create_if_missing=True)
 secrets = [modal.Secret.from_name("wandb-secret")]
+
+VOLUMES = {"/data": data_volume, "/out": out_volume, "/cache": cache_volume}
+CACHE_ENV = {"HF_HOME": "/cache/huggingface"}
 
 STAGE_DATA = {
     "pretrain": "pretrain_t2t_mini.jsonl",
@@ -30,6 +35,7 @@ STAGE_DATA = {
     "full_sft": "sft_t2t_mini.jsonl",
     "full_sft_full": "sft_t2t.jsonl",
     "lora": "lora_identity.jsonl",
+    "lora_mixed": "lora_identity_mixed.jsonl",
     "dpo": "dpo.jsonl",
     "distillation": "sft_t2t_mini.jsonl",
     "ppo": "rlaif.jsonl",
@@ -37,9 +43,13 @@ STAGE_DATA = {
     "agent": "agent_rl.jsonl",
 }
 
+STAGE_TRAINER = {
+    "lora_mixed": "lora",
+}
+
 
 def run_stage(stage, extra_args):
-    trainer = stage.removesuffix("_full")
+    trainer = STAGE_TRAINER.get(stage, stage.removesuffix("_full"))
     command = [
         sys.executable, f"{REMOTE_REPO}/trainer/train_{trainer}.py",
         "--data_path", f"/data/{STAGE_DATA[stage]}",
@@ -49,12 +59,14 @@ def run_stage(stage, extra_args):
         *extra_args,
     ]
     print("running:", " ".join(command), flush=True)
-    result = subprocess.run(command, cwd=REMOTE_REPO, env={**os.environ, "PYTHONPATH": REMOTE_REPO})
+    env = {**os.environ, "PYTHONPATH": REMOTE_REPO, **CACHE_ENV}
+    result = subprocess.run(command, cwd=REMOTE_REPO, env=env)
     out_volume.commit()
+    cache_volume.commit()
     return result.returncode
 
 
-@app.function(volumes={"/data": data_volume, "/out": out_volume})
+@app.function(volumes=VOLUMES)
 def check_inputs(stage: str, from_weight: str | None):
     missing = []
     if not Path(f"/data/{STAGE_DATA[stage]}").exists():
@@ -67,12 +79,37 @@ def check_inputs(stage: str, from_weight: str | None):
     return None
 
 
-@app.function(gpu="A100", timeout=12 * 3600, volumes={"/data": data_volume, "/out": out_volume}, secrets=secrets)
+@app.function(gpu="A100", timeout=12 * 3600, volumes=VOLUMES, secrets=secrets)
+def train_queue(jobs: list[dict], wait_for: str = ""):
+    if wait_for:
+        deadline = time.time() + 4 * 3600
+        while time.time() < deadline:
+            out_volume.reload()
+            if list(Path("/out").glob(wait_for)):
+                break
+            print(f"[queue] waiting for {wait_for}", flush=True)
+            time.sleep(120)
+        else:
+            return f"gave up waiting for {wait_for}"
+
+    done = []
+    for job in jobs:
+        stage = job["stage"]
+        print(f"[queue] starting {stage}", flush=True)
+        code = run_stage(stage, job["extra"].split())
+        print(f"[queue] {stage} exit {code}", flush=True)
+        if code != 0:
+            return f"stopped at {stage} (exit {code}); completed: {done}"
+        done.append(stage)
+    return f"queue complete: {done}"
+
+
+@app.function(gpu="A100", timeout=12 * 3600, volumes=VOLUMES, secrets=secrets)
 def train_a100(stage: str, extra_args: list[str]):
     return run_stage(stage, extra_args)
 
 
-@app.function(gpu="H100", timeout=12 * 3600, volumes={"/data": data_volume, "/out": out_volume}, secrets=secrets)
+@app.function(gpu="H100", timeout=12 * 3600, volumes=VOLUMES, secrets=secrets)
 def train_h100(stage: str, extra_args: list[str]):
     return run_stage(stage, extra_args)
 
@@ -80,7 +117,6 @@ def train_h100(stage: str, extra_args: list[str]):
 @app.local_entrypoint()
 def main(stage: str = "pretrain", gpu: str = "A100", extra: str = "", wait: bool = False):
     extra_args = extra.split()
-    # A missing input costs the whole GPU-hour if we only find out after the model loads.
     from_weight = extra_args[extra_args.index("--from_weight") + 1] if "--from_weight" in extra_args else None
     problem = check_inputs.remote(stage, from_weight)
     if problem:
@@ -89,6 +125,4 @@ def main(stage: str = "pretrain", gpu: str = "A100", extra: str = "", wait: bool
     if wait:
         print(f"{stage} finished with exit code {train.remote(stage, extra_args)}")
         return
-    # A blocking .remote() input is cancelled the moment this client dies, --detach or not.
-    # A training run has to outlive the laptop that started it, so hand it off and let go.
     print(f"{stage} running as {train.spawn(stage, extra_args).object_id}")
