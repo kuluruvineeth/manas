@@ -32,6 +32,18 @@ def test_collect_files_and_dry_run(tmp_path, capsys):
     assert "would push to someone/manas-test" in out and "final training loss: 3.0000" in out
 
 
+def test_model_card_reports_benchmarks_with_the_chance_baseline():
+    benchmarks = {
+        "weight": "full_sft_full",
+        "results": {"mmlu": {"accuracy": 0.258, "chance": 0.25, "items": 500}},
+        "average": 0.28,
+    }
+    card = model_card("full_sft", 768, [], ["full_sft_768.pth"], benchmarks=benchmarks)
+    assert "| mmlu | 25.8% | 25.0% | 500 |" in card
+    assert "**28.0%**" in card and "near random chance" in card
+    assert "## Benchmarks" not in model_card("full_sft", 768, [], ["full_sft_768.pth"])
+
+
 def test_moe_checkpoints_are_found_by_their_own_name(tmp_path):
     torch.save({"w": torch.zeros(1)}, tmp_path / "pretrain_64_moe.pth")
     with open(tmp_path / "pretrain_64_moe_metrics.jsonl", "w", encoding="utf-8") as f:

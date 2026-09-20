@@ -25,7 +25,27 @@ def canonical_stage(stage):
     return stage.removesuffix("_full")
 
 
-def model_card(stage, hidden_size, metrics_rows, extra_files, has_export=False):
+BENCHMARK_CAVEAT = (
+    "A 64M model has nowhere near the capacity these benchmarks assume, so scores sit at or "
+    "near random chance. They are published because hiding them would be dishonest, not "
+    "because they are good. What the model can actually do is hold a conversation, answer "
+    "simple factual questions, and call tools."
+)
+
+
+def benchmark_section(benchmarks):
+    if not benchmarks:
+        return []
+    lines = ["## Benchmarks", "", "| benchmark | accuracy | random chance | items |", "|---|---|---|---|"]
+    for name, row in sorted(benchmarks["results"].items()):
+        lines.append(
+            f"| {name} | {row['accuracy']:.1%} | {row['chance']:.1%} | {row['items']} |"
+        )
+    lines += [f"| **average** | **{benchmarks['average']:.1%}** | | |", "", BENCHMARK_CAVEAT, ""]
+    return lines
+
+
+def model_card(stage, hidden_size, metrics_rows, extra_files, has_export=False, benchmarks=None):
     stage = canonical_stage(stage)
     last_train = next((r["loss"] for r in reversed(metrics_rows) if "loss" in r), None)
     last_val = next((r["val_loss"] for r in reversed(metrics_rows) if "val_loss" in r), None)
@@ -50,6 +70,9 @@ def model_card(stage, hidden_size, metrics_rows, extra_files, has_export=False):
         f"- final training loss: {last_train:.4f}" if last_train is not None else "- final training loss: n/a",
         f"- final held-out loss: {last_val:.4f}" if last_val is not None else "- final held-out loss: n/a",
         "",
+    ]
+    lines += benchmark_section(benchmarks)
+    lines += [
         "## Files",
         "",
     ]
@@ -115,6 +138,7 @@ def push(
     dry_run=False,
     export_dir=None,
     use_moe=False,
+    eval_path=None,
 ):
     files = collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir, use_moe)
     missing = [p for p in files.values() if not os.path.exists(p)]
@@ -123,7 +147,11 @@ def push(
     stem = f"{stage}_{hidden_size}{'_moe' if use_moe else ''}"
     metrics_path = files.get(f"{stem}_metrics.jsonl")
     rows = read_metrics(metrics_path) if metrics_path else []
-    card = model_card(stage, hidden_size, rows, sorted(files), has_export=bool(export_dir))
+    benchmarks = None
+    if eval_path and os.path.exists(eval_path):
+        with open(eval_path) as handle:
+            benchmarks = json.load(handle)
+    card = model_card(stage, hidden_size, rows, sorted(files), bool(export_dir), benchmarks)
     card = card.replace("REPO_ID", repo_id)
     if dry_run:
         print(f"[dry-run] would push to {repo_id} (private={private}):")
@@ -159,6 +187,7 @@ def main():
     parser.add_argument("--repo_id", default=None)
     parser.add_argument("--export_dir", default=None, help="Qwen3 export from convert_model.py")
     parser.add_argument("--use_moe", type=int, default=0)
+    parser.add_argument("--eval_path", default=None)
     parser.add_argument("--public", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
     args = parser.parse_args()
@@ -173,6 +202,7 @@ def main():
         args.dry_run,
         args.export_dir,
         bool(args.use_moe),
+        args.eval_path,
     )
 
 
