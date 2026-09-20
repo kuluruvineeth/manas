@@ -58,11 +58,7 @@ def fuse_experts(state, config, target_state):
     return fused
 
 
-# transformers 5 stamps its own backend class and a set of v5-only keys into tokenizer_config.json.
-# Anything still on transformers 4 — vLLM, SGLang, the llama.cpp converters — then refuses to load it.
 V5_ONLY_KEYS = (
-    # v5 writes a list here; v4 expects a name -> token mapping and crashes on a list. The tokens
-    # it lists are Qwen defaults that are already registered in tokenizer.json anyway.
     "extra_special_tokens",
     "backend",
     "is_local",
@@ -76,6 +72,22 @@ V5_ONLY_KEYS = (
     "vision_bos_token",
     "vision_eos_token",
 )
+
+
+EMPTY_THINK_BRANCH = """    {%- else %}
+        {{- '<think>\\n\\n</think>\\n\\n' }}
+    {%- endif %}"""
+NO_EMPTY_THINK_BRANCH = """    {%- endif %}"""
+
+
+def training_shaped_chat_template(out_dir):
+    path = os.path.join(out_dir, "chat_template.jinja")
+    with open(path) as handle:
+        template = handle.read()
+    if EMPTY_THINK_BRANCH not in template:
+        raise SystemExit("chat template no longer has the empty-think branch to remove")
+    with open(path, "w") as handle:
+        handle.write(template.replace(EMPTY_THINK_BRANCH, NO_EMPTY_THINK_BRANCH))
 
 
 def portable_tokenizer_config(out_dir):
@@ -104,6 +116,7 @@ def export(stage, config, save_dir, tokenizer_dir, out_dir, device="cpu"):
     target.half().save_pretrained(out_dir)
     tokenizer.save_pretrained(out_dir)
     portable_tokenizer_config(out_dir)
+    training_shaped_chat_template(out_dir)
     return out_dir
 
 

@@ -1,19 +1,9 @@
-"""Does a real inference engine accept our exported model?
-
-  modal run gpu/modal_vllm_check.py
-
-Unpacks the Qwen3 export from the checkpoint volume and asks vLLM to load and generate with it.
-A 64M model with a 6,400-token vocabulary is far outside the sizes these engines are tuned for,
-so this is a genuine compatibility test, not a formality.
-"""
 import subprocess
 
 import modal
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    # vLLM 0.11 predates the transformers v5 tokenizer rewrite, which dropped
-    # all_special_tokens_extended. Left unpinned, uv resolves to v5 and the engine dies.
     .uv_pip_install("vllm==0.11.0", "transformers<5", "huggingface_hub")
 )
 
@@ -37,8 +27,6 @@ def check():
         gpu_memory_utilization=0.6,
         enforce_eager=True,
     )
-    # Render through the exported tokenizer rather than a hardcoded string, so a change to
-    # chat_template.jinja cannot leave this check quietly testing a format we no longer use.
     tokenizer = AutoTokenizer.from_pretrained("/tmp/model")
     questions = ["What is the capital of France?", "Once upon a time"]
     prompts = [

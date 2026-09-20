@@ -57,6 +57,21 @@ def test_exported_tokenizer_config_stays_portable(tmp_path):
     assert not [key for key in ("backend", "is_local", "local_files_only") if key in config]
 
 
+def test_exported_template_matches_what_training_saw(tmp_path):
+    torch.manual_seed(0)
+    model = ManasForCausalLM(SMALL).eval()
+    save_weights(model, weight_path(str(tmp_path), "full_sft", SMALL))
+    out_dir = export("full_sft", SMALL, str(tmp_path), str(TOKENIZER_DIR), str(tmp_path / "hf"))
+    tokenizer = AutoTokenizer.from_pretrained(out_dir)
+    message = [{"role": "user", "content": "hi"}]
+    plain = tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
+    assert plain.endswith("<|im_start|>assistant\n")
+    thinking = tokenizer.apply_chat_template(
+        message, tokenize=False, add_generation_prompt=True, open_thinking=True
+    )
+    assert thinking.endswith("<think>\n")
+
+
 def test_moe_export_round_trips(tmp_path):
     moe_config = ManasConfig(hidden_size=64, num_hidden_layers=2, use_moe=True)
     torch.manual_seed(0)
