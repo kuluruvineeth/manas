@@ -11,8 +11,6 @@ STAGE_BLURB = {
     "lora": "a LoRA adapter",
 }
 
-# Files the Qwen3 export writes. Publishing these alongside the raw checkpoint is what lets
-# anyone load the model with transformers or serve it with vLLM instead of needing this repo.
 EXPORT_FILES = (
     "config.json",
     "generation_config.json",
@@ -24,7 +22,6 @@ EXPORT_FILES = (
 
 
 def canonical_stage(stage):
-    # "_full" marks the full data tier internally and means nothing to anyone reading the hub.
     return stage.removesuffix("_full")
 
 
@@ -89,10 +86,11 @@ def model_card(stage, hidden_size, metrics_rows, extra_files, has_export=False):
     return "\n".join(lines)
 
 
-def collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir=None):
-    weight = os.path.join(save_dir, f"{stage}_{hidden_size}.pth")
-    metrics = os.path.join(save_dir, f"{stage}_{hidden_size}_metrics.jsonl")
-    curves = os.path.join(save_dir, f"{stage}_{hidden_size}_curves.png")
+def collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir=None, use_moe=False):
+    stem = f"{stage}_{hidden_size}{'_moe' if use_moe else ''}"
+    weight = os.path.join(save_dir, f"{stem}.pth")
+    metrics = os.path.join(save_dir, f"{stem}_metrics.jsonl")
+    curves = os.path.join(save_dir, f"{stem}_curves.png")
     files = {os.path.basename(weight): weight}
     for path in (metrics, curves):
         if os.path.exists(path):
@@ -100,7 +98,6 @@ def collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir=None):
     for name in ("tokenizer.json", "tokenizer_config.json"):
         files[name] = os.path.join(tokenizer_dir, name)
     if export_dir:
-        # The export's own tokenizer files win: they are what the exported config refers to.
         for name in EXPORT_FILES:
             path = os.path.join(export_dir, name)
             if os.path.exists(path):
@@ -108,12 +105,23 @@ def collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir=None):
     return files
 
 
-def push(stage, hidden_size, save_dir, tokenizer_dir, repo_id, private=True, dry_run=False, export_dir=None):
-    files = collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir)
+def push(
+    stage,
+    hidden_size,
+    save_dir,
+    tokenizer_dir,
+    repo_id,
+    private=True,
+    dry_run=False,
+    export_dir=None,
+    use_moe=False,
+):
+    files = collect_files(save_dir, stage, hidden_size, tokenizer_dir, export_dir, use_moe)
     missing = [p for p in files.values() if not os.path.exists(p)]
     if missing:
         raise SystemExit(f"missing files: {missing}")
-    metrics_path = files.get(f"{stage}_{hidden_size}_metrics.jsonl")
+    stem = f"{stage}_{hidden_size}{'_moe' if use_moe else ''}"
+    metrics_path = files.get(f"{stem}_metrics.jsonl")
     rows = read_metrics(metrics_path) if metrics_path else []
     card = model_card(stage, hidden_size, rows, sorted(files), has_export=bool(export_dir))
     card = card.replace("REPO_ID", repo_id)
@@ -128,7 +136,13 @@ def push(stage, hidden_size, save_dir, tokenizer_dir, repo_id, private=True, dry
     api = HfApi()
     api.create_repo(repo_id, repo_type="model", private=private, exist_ok=True)
     api.upload_file(path_or_fileobj=card.encode("utf-8"), path_in_repo="README.md", repo_id=repo_id)
-    config = {"stage": stage, "hidden_size": hidden_size, "num_hidden_layers": 8, "architecture": "ManasForCausalLM"}
+    config = {
+        "stage": stage,
+        "hidden_size": hidden_size,
+        "num_hidden_layers": 8,
+        "use_moe": use_moe,
+        "architecture": "ManasForCausalLM",
+    }
     api.upload_file(path_or_fileobj=json.dumps(config, indent=2).encode(), path_in_repo="manas.json", repo_id=repo_id)
     for name, path in files.items():
         print(f"[push] {name}", flush=True)
@@ -144,6 +158,7 @@ def main():
     parser.add_argument("--tokenizer_dir", default="tokenizer")
     parser.add_argument("--repo_id", default=None)
     parser.add_argument("--export_dir", default=None, help="Qwen3 export from convert_model.py")
+    parser.add_argument("--use_moe", type=int, default=0)
     parser.add_argument("--public", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
     args = parser.parse_args()
@@ -157,6 +172,7 @@ def main():
         not args.public,
         args.dry_run,
         args.export_dir,
+        bool(args.use_moe),
     )
 
 

@@ -32,6 +32,16 @@ def test_collect_files_and_dry_run(tmp_path, capsys):
     assert "would push to someone/manas-test" in out and "final training loss: 3.0000" in out
 
 
+def test_moe_checkpoints_are_found_by_their_own_name(tmp_path):
+    torch.save({"w": torch.zeros(1)}, tmp_path / "pretrain_64_moe.pth")
+    with open(tmp_path / "pretrain_64_moe_metrics.jsonl", "w", encoding="utf-8") as f:
+        f.write(json.dumps({"step": 1, "loss": 3.0}) + "\n")
+    files = collect_files(str(tmp_path), "pretrain", 64, str(TOKENIZER_DIR), use_moe=True)
+    assert "pretrain_64_moe.pth" in files and "pretrain_64_moe_metrics.jsonl" in files
+    with pytest.raises(SystemExit, match="missing files"):
+        push("pretrain", 64, str(tmp_path), str(TOKENIZER_DIR), "someone/manas-test", dry_run=True)
+
+
 def test_push_refuses_when_weights_are_missing(tmp_path):
     with pytest.raises(SystemExit, match="missing files"):
         push("pretrain", 64, str(tmp_path), str(TOKENIZER_DIR), "someone/manas-test", dry_run=True)
