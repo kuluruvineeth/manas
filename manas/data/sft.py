@@ -5,6 +5,8 @@ import torch
 from datasets import Features, Value, load_dataset
 from torch.utils.data import Dataset
 
+from manas.tokenizer import EMPTY_THINK
+
 SYSTEM_PROMPTS = [
     "You are Manas, a small but useful language model.",
     "You are a helpful AI assistant.",
@@ -16,7 +18,6 @@ SYSTEM_PROMPTS = [
     "You are Manas, a compact language model trained from scratch.",
 ]
 
-EMPTY_THINK = "<think>\n\n</think>\n\n"
 
 CONVERSATION_FEATURES = Features({
     "conversations": [{

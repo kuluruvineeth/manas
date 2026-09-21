@@ -6,6 +6,7 @@ from jinja2 import Environment
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
 VOCAB_SIZE = 6400
+EMPTY_THINK = "<think>\n\n</think>\n\n"
 
 SPECIAL_TOKENS = [
     "<|endoftext|>", "<|im_start|>", "<|im_end|>",
