@@ -134,7 +134,7 @@ default_theme = "dark"
 # default_chat_settings_open = false
 
 # Whether to prompt user confirmation on clicking 'New Chat'
-confirm_new_chat = true
+confirm_new_chat = false
 
 # Description of the assistant. This is used for HTML tags.
 description = "A 64M language model trained from scratch"

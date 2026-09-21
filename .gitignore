@@ -15,3 +15,5 @@ wandb/
 swanlog/
 .terraform/
 **/.chainlit/translations/
+demo/manas_chats.db
+demo/.env
