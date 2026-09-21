@@ -7,9 +7,15 @@ from fastapi.testclient import TestClient
 from transformers import AutoTokenizer
 
 from manas.config import ManasConfig
-from manas.data.sft import EMPTY_THINK
 from manas.model.causal_lm import ManasForCausalLM
-from manas.serve.api import ChatRequest, create_app, render, wants_thinking
+from manas.serve.api import (
+    ChatRequest,
+    create_app,
+    effective_repetition_penalty,
+    render,
+    wants_thinking,
+)
+from manas.tokenizer import EMPTY_THINK
 
 TOKENIZER_DIR = Path(__file__).resolve().parents[1] / "tokenizer"
 CONFIG = ManasConfig(hidden_size=64, num_hidden_layers=2)
@@ -82,3 +88,11 @@ def test_tools_are_accepted_in_the_request(client):
     })
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["role"] == "assistant"
+
+
+def test_repetition_penalty_is_dropped_when_tools_are_offered():
+    # A tool call repeats braces, quotes and key names by design; penalising that truncates
+    # the call mid-expression and the calculator gets "847" instead of "847 * 23".
+    tools = [{"type": "function", "function": {"name": "calculator", "parameters": {}}}]
+    assert effective_repetition_penalty(ChatRequest(messages=[], tools=tools)) == 1.0
+    assert effective_repetition_penalty(ChatRequest(messages=[])) == 1.1

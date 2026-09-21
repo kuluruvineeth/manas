@@ -1,11 +1,10 @@
 import time
 
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from manas.data.sft import EMPTY_THINK
 from manas.serve.protocol import (
     DONE,
     chat_completion,
@@ -16,6 +15,7 @@ from manas.serve.protocol import (
     sse,
     strip_tool_calls,
 )
+from manas.tokenizer import EMPTY_THINK
 
 MODEL_NAME = "manas-64m"
 
@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.85
     top_p: float = 0.95
     max_tokens: int = 512
+    repetition_penalty: float = 1.1
     stream: bool = False
     tools: list | None = None
     open_thinking: bool = False
@@ -52,6 +53,12 @@ def render(tokenizer, request):
     return prompt
 
 
+def effective_repetition_penalty(request):
+    """A tool call is JSON: it repeats braces, quotes and key names by design. Penalising
+    repetition truncates it mid-expression, so the penalty is off whenever tools are offered."""
+    return 1.0 if request.tools else request.repetition_penalty
+
+
 def generate_text(model, tokenizer, request, device):
     prompt = render(tokenizer, request)
     input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
@@ -61,6 +68,7 @@ def generate_text(model, tokenizer, request, device):
             max_new_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p,
+            repetition_penalty=effective_repetition_penalty(request),
             eos_token_id=tokenizer.eos_token_id,
         )
     text = tokenizer.decode(output[0][input_ids.shape[1] :], skip_special_tokens=True)
@@ -105,5 +113,65 @@ def create_app(model, tokenizer, device="cpu", model_name=MODEL_NAME):
             )
         text, prompt_tokens, completion_tokens = generate_text(model, tokenizer, request, device)
         return chat_completion(model_name, text, prompt_tokens, completion_tokens)
+
+    return app
+
+
+class CompareRequest(BaseModel):
+    messages: list
+    models: list | None = None
+    temperature: float = 0.85
+    top_p: float = 0.95
+    max_tokens: int = 128
+    repetition_penalty: float = 1.1
+    open_thinking: bool = False
+
+
+def create_gallery_app(models, tokenizer, device="cpu"):
+    app = FastAPI(title="Manas gallery")
+    started = time.time()
+
+    def pick(name):
+        if name not in models:
+            raise HTTPException(status_code=404, detail=f"unknown model {name}; have {sorted(models)}")
+        return models[name]
+
+    @app.get("/v1/models")
+    def list_models():
+        data = [{"id": name, "object": "model", "owned_by": "manas"} for name in sorted(models)]
+        return {"object": "list", "data": data}
+
+    @app.get("/health")
+    def health():
+        return {"status": "ok", "models": sorted(models), "uptime_seconds": round(time.time() - started, 1)}
+
+    @app.post("/v1/chat/completions")
+    def chat_completions(request: ChatRequest):
+        model = pick(request.model)
+        if request.stream:
+            return StreamingResponse(
+                stream_text(model, tokenizer, request, device, request.model), media_type="text/event-stream"
+            )
+        text, prompt_tokens, completion_tokens = generate_text(model, tokenizer, request, device)
+        return chat_completion(request.model, text, prompt_tokens, completion_tokens)
+
+    @app.post("/v1/compare")
+    def compare(request: CompareRequest):
+        names = request.models or sorted(models)
+        answers = []
+        for name in names:
+            one = ChatRequest(
+                model=name,
+                messages=request.messages,
+                temperature=request.temperature,
+                top_p=request.top_p,
+                max_tokens=request.max_tokens,
+                repetition_penalty=request.repetition_penalty,
+                open_thinking=request.open_thinking,
+            )
+            text, _, _ = generate_text(pick(name), tokenizer, one, device)
+            reasoning, answer = split_reasoning(text)
+            answers.append({"model": name, "answer": answer.strip(), "reasoning": reasoning})
+        return {"object": "list", "prompt": request.messages, "data": answers}
 
     return app
