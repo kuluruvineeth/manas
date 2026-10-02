@@ -4,7 +4,9 @@ A 64M-parameter language model trained from scratch and carried through every mo
 data pipeline, pretraining, SFT, DPO, PPO, GRPO, agentic RL with tool calls, distillation, and a mixture-of-experts
 variant. One codebase, one tokenizer, one dataset repo, the same evals at every stage.
 
-Weights for every stage: [Manas-64M collection](https://huggingface.co/collections/kuluruvineeth/manas-64m-every-training-stage-6abf967eb1940477ad595a8e) ·
+Chat with every stage: [Manas-64M Space](https://huggingface.co/spaces/kuluruvineeth/manas-64m-chat), served by
+[inference-engine](https://github.com/kuluruvineeth/inference-engine) ·
+weights for every stage: [Manas-64M collection](https://huggingface.co/collections/kuluruvineeth/manas-64m-every-training-stage-6abf967eb1940477ad595a8e) ·
 data: [`kuluruvineeth/manas_dataset`](https://huggingface.co/datasets/kuluruvineeth/manas_dataset)
 
 ## Stages
