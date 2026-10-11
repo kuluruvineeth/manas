@@ -10,6 +10,7 @@ benchmarks.
 
 | | |
 |---|---|
+| Technical report | [Manas-64M technical report (PDF)](https://github.com/kuluruvineeth/manas/releases/download/technical-report-v1/Manas-64M-technical-report.pdf) |
 | Chat with every stage | [Manas-64M Space](https://huggingface.co/spaces/kuluruvineeth/manas-64m-chat) |
 | Weights of every stage | [Manas-64M collection](https://huggingface.co/collections/kuluruvineeth/manas-64m-every-training-stage-6abf967eb1940477ad595a8e) |
 | Training data | [`kuluruvineeth/manas_dataset`](https://huggingface.co/datasets/kuluruvineeth/manas_dataset) |
